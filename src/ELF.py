@@ -72,9 +72,9 @@ def ELF(ifcrystal,cell_a,cell_b,cell_c,obtdictionary ,atom_xyz, kpoint_coe_list,
         chargeDy += np.conj(PHIY) * PHIY
         chargeDz += np.conj(PHIZ) * PHIZ
         KE += np.conj((PHIX - PHIO)/0.001)*(PHIX - PHIO)/0.001 + np.conj((PHIY - PHIO)/0.001)*(PHIY - PHIO)/0.001 +np.conj((PHIZ - PHIO)/0.001)*(PHIZ - PHIO)/0.001
-    WKED = 0.25 *(    ((chargeDx-chargeDo)/0.001)**2   +  ((chargeDy-chargeDo)/0.001)**2  +  ((chargeDz-chargeDo)/0.001)**2            )
+    WKED = 0.25 * 0.99 * (    ((chargeDx-chargeDo)/0.001)**2   +  ((chargeDy-chargeDo)/0.001)**2  +  ((chargeDz-chargeDo)/0.001)**2            )
     UEG = 9.115599744691192 * (chargeDo**(5/3))
-    chi = (KE - 0.99 * WKED/chargeDo) / UEG
+    chi = (KE - WKED/chargeDo) / UEG
     ELF = 1/(1+chi**2)
     ELF = np.nan_to_num(ELF)
     filename = 'ELF'
