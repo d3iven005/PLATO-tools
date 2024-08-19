@@ -8,5 +8,9 @@ Before using this code, ensure that you have Python 'numpy' package and PLATO (A
  4. The output will be saved in the "01_results/" folder, visualise the "*.cube" file by VMD or other visualisation software.
 # EXAMPLE
 Some "*.wf" and "*.xyz" files has been pre-placed in the "00_inputdata/" folder. The default input file is configured for ELF calculation of a water molecule.
+# PLATO DATASET USAGE
+ 1. Copy the folder "HCOMg" to the directory "Your_PLATO_route/Data/TightBinding".
+ 2. Change the 'Dataset' Flag in the input file to "HCOMg". 
+ 3. Run the "tb1" program.
 # NOTICE
 The ELF code right now is calculated under its original defination in real space, which results in very low calculation efficiency. This calculation can be held in reciprocal space after Fourier transformation. The gradient of wavefunction phi and charge density will be equal to ik(Phi(k)) and ik(rho(k)), which will increase the calculation efficiency significantly. This will be done in the future.
