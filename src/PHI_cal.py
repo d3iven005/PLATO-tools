@@ -36,19 +36,18 @@ def PHInk_c(ifcrystal,cell_a,cell_b,cell_c,obtdictionary ,atom_xyz, kpoint_coe,k
                     for kk in range(-1,2):
                         Atom_pvector = atom_pvector + ii*cell_a + jj*cell_b +kk*cell_c
                         d_M = distnt(xyzgrid, Atom_pvector)
-                        PERI = np.exp(1j * np.dot(kpoint, Atom_pvector))
-                        BLOCH = np.exp(1j * np.dot(xyzgrid,kpoint))
+                        BLOCH = np.exp(1j * np.dot(kpoint, Atom_pvector))
                         #print(BLOCH)
                         if obtinfo[i] == 1:
-                            phi = phi_coe[energylevel][o_i] * R(obtdictionary['Hs'],d_M) * Y(xyzgrid,Atom_pvector,0,0)           *PERI*BLOCH
+                            phi = phi_coe[energylevel][o_i] * R(obtdictionary['Hs'],d_M) * Y(xyzgrid,Atom_pvector,0,0)           *BLOCH
                             PHI += kpoint_coe * phi
                         elif obtinfo[i] == 4:
                             elementtype = atom_xyz[i][0]
                             Rp = R(obtdictionary[elementtype+'p'],d_M)
-                            phi = phi_coe[energylevel][o_i] * R(obtdictionary[elementtype+'s'],d_M) * Y(xyzgrid,Atom_pvector,0,0)         *PERI*BLOCH
-                            phi += phi_coe[energylevel][o_i+1] * Rp * Y(xyzgrid,Atom_pvector,0,1)	  *PERI*BLOCH
-                            phi += phi_coe[energylevel][o_i+2] * Rp * Y(xyzgrid,Atom_pvector,1,1)	  *PERI*BLOCH
-                            phi += phi_coe[energylevel][o_i+3] * Rp * Y(xyzgrid,Atom_pvector,-1,1)	  *PERI*BLOCH
+                            phi = phi_coe[energylevel][o_i] * R(obtdictionary[elementtype+'s'],d_M) * Y(xyzgrid,Atom_pvector,0,0)         *BLOCH
+                            phi += phi_coe[energylevel][o_i+1] * Rp * Y(xyzgrid,Atom_pvector,0,1)	  *BLOCH
+                            phi += phi_coe[energylevel][o_i+2] * Rp * Y(xyzgrid,Atom_pvector,1,1)	  *BLOCH
+                            phi += phi_coe[energylevel][o_i+3] * Rp * Y(xyzgrid,Atom_pvector,-1,1)	  *BLOCH
                             PHI += kpoint_coe * phi
                         elif obtinfo[i] == 9:
                             PHI=PHI
