@@ -31,6 +31,7 @@ def PHInk_c(ifcrystal,cell_a,cell_b,cell_c,obtdictionary ,atom_xyz, kpoint_coe,k
                 phi += phi_coe[energylevel][o_i+1] * Rp * Y(xyzgrid,atom_pvector,0,1)
                 phi += phi_coe[energylevel][o_i+2] * Rp * Y(xyzgrid,atom_pvector,1,1) 
                 phi += phi_coe[energylevel][o_i+3] * Rp * Y(xyzgrid,atom_pvector,-1,1)
+                PHI += phi
             elif obtinfor[i] == 9:
                 PHI=PHI
     else:
