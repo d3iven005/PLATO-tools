@@ -1,5 +1,5 @@
-# PLATO-MO-ELF
-A python code for PLATO molecular orbital (MO) and electron localization function (ELF) calculation
+# PLATO-tools
+A python code for PLATO molecular orbital (MO), charge density and electron localization function (ELF) calculation
 # USAGE
 Before using this code, ensure that you have Python 'numpy' package and PLATO (A package of programs for building tight binding models) installed. PLATO is a free program and for PLATO installation requests, please contact Prof. Andrew Horsfield via a.horsfield@imperial.ac.uk.
  1. Run PLATO "tb1" calculation to generate "*.wf" and "*.xyz" file.
