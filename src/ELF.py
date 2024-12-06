@@ -77,9 +77,26 @@ def ELF(ifcrystal,cell_a,cell_b,cell_c,obtdictionary ,atom_xyz, kpoint_coe_list,
     chi = (KE - WKED/chargeDo) / UEG
     ELF = 1/(1+chi**2)
     ELF = np.nan_to_num(ELF)
-    filename = 'ELF'
+    #filename = 'ELF'
     #np.savez('./01_results/'+filename+'.npz', CELLA = cell_a[0],CELLB = cell_b[0], CELLC = cell_c[0], AXYZ = atom_xyz[0],RXYZ = xyzgrid[0],PHI = PHI)
-    with open('./01_results/'+filename+'.cube','w') as f:
+    with open('./01_results/'+'CD'+'.cube','w') as f:
+        f.write('cube file for electron localisation function'+'\n')
+        f.write(''+'\n')
+        f.write(str(Natom)+' 0.0 0.0 0.0'+'\n')
+        f.write(str(Nx)+' '+str(cell_a[0][0]/Nx)+' '+str(cell_a[0][1]/Nx)+' '+str(cell_a[0][2]/Nx)+'\n')
+        f.write(str(Ny)+' '+str(cell_b[0][0]/Ny)+' '+str(cell_b[0][1]/Ny)+' '+str(cell_b[0][2]/Ny)+'\n')
+        f.write(str(Nz)+' '+str(cell_c[0][0]/Nz)+' '+str(cell_c[0][1]/Nz)+' '+str(cell_c[0][2]/Nz)+'\n')
+        for ii in range(len(xyz)):
+            f.write( str(Elementlist.index(xyz[ii][0])+1) +' 0.0 '+str(float(xyz[ii][1])/bohr)+' '+str(float(xyz[ii][2])/bohr)+' '+str(float(xyz[ii][3])/bohr) +'\n'  
+    )
+        for ii in range(len(chargeDo)):
+            for jj in range(len(chargeDo[ii])):
+                for kk in range(len(chargeDo[ii][jj])):
+                    f.write(str(chargeDo[ii][jj][kk])+' ')
+                    if kk%6 == 5:
+                        f.write('\n')
+                f.write('\n')
+    with open('./01_results/'+'ELF'+'.cube','w') as f:
          f.write('cube file for electron localisation function'+'\n')
          f.write(''+'\n')
          f.write(str(Natom)+' 0.0 0.0 0.0'+'\n')
