@@ -92,7 +92,7 @@ def ELF(ifcrystal,cell_a,cell_b,cell_c,obtdictionary ,atom_xyz, kpoint_coe_list,
         for ii in range(len(chargeDo)):
             for jj in range(len(chargeDo[ii])):
                 for kk in range(len(chargeDo[ii][jj])):
-                    f.write(str(chargeDo[ii][jj][kk])+' ')
+                    f.write(str(chargeDo[ii][jj][kk].real)+' ')
                     if kk%6 == 5:
                         f.write('\n')
                 f.write('\n')
