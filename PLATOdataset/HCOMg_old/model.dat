@@ -1,0 +1,14 @@
+# Model: Empirical potential = 0, Tabulated Tight Binding = 1, Gaussian Tight Binding = 2, Gaussian Moments = 3
+1
+# Pair functional
+0
+# Overlap
+1
+# Crystal field
+0
+# Three centre
+0
+# n_[ij} integrals (for many body xchange-correlation correction): 0=not present, 1=present
+0
+# Sankey (SN) integrals for treating many body xchange-correlation correction: 0=not present, 1=present
+0
