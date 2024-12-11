@@ -16,3 +16,4 @@ Some "*.wf" and "*.xyz" files have been pre-placed in the "00_inputdata/" folder
  5. Run the "tb1" program.
 # NOTICE
 The ELF code right now is calculated under its original definition in real space, which results in very low calculation efficiency. This calculation can be held in reciprocal space after Fourier transformation. The gradient of wavefunction phi and charge density will be equal to ik(Phi(k)) and ik(rho(k)), which will increase the calculation efficiency significantly. This will be done in the future.
+Support for Gaussian and Slater-type orbitals will also be added in the future.
