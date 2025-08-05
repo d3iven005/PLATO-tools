@@ -1,7 +1,7 @@
 # PLATO-tools
 A Python code for PLATO molecular orbital (MO), charge density, and electron localization function (ELF) calculation
 # USAGE
-Before using this code, ensure that you have Python 'numpy' package and PLATO (A package of programs for building tight binding models) installed. PLATO is a free program and for PLATO installation requests, please contact Prof. Andrew Horsfield via a.horsfield@imperial.ac.uk.
+Before using this code, ensure that you have Python 'numpy' package and PLATO (A package of programs for building tight binding models) installed. PLATO is a free program and for PLATO installation requests, please contact Prof. Andrew Horsfield via a.horsfield@imperial.ac.uk. If you have any questions about this tools, please feel free to contact me via jiwen.yu18@imperial.ac.uk.
  1. Run PLATO "tb1" calculation to generate "*.wf" and "*.xyz" file.
  2. Copy "*.wf" and "*.xyz" to the "00_inputdata/" folder. Some versions of PLATO for non-periodic calculation will generate ".wf" file without K-point information. Please copy "K-point 1   0.00000   0.00000   0.00000 1.0000000000" to the first line of ".wf" file.
  3. Modify the parameters in "input.py" as needed, and run this code.
