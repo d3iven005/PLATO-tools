@@ -8,6 +8,7 @@ Before using this code, ensure that you have Python 'numpy' package and PLATO (A
  4. The output will be saved in the "01_results/" folder, visualise the "*.cube" file by VMD or other visualisation software.
 # EXAMPLE
 Some "*.wf" and "*.xyz" files have been pre-placed in the "00_inputdata/" folder. The default input file is configured for ELF calculation of a water molecule.
+![demo](images/Caffeine_ELF.png)
 # PLATO DATASET USAGE
  1. Copy the directory "PLATO-tools/PLATOdataset/HCOMg_new" to the directory "Your_PLATO_route/Data/TightBinding".
  2. Change the 'Dataset' Flag in the input file to "HCOMg_new".
