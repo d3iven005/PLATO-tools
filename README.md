@@ -31,4 +31,5 @@ The ELF code right now is calculated under its original definition in real space
 Support for Gaussian and Slater-type orbitals will also be added in the future.
 
 If you like this code, you may also be interested in our related work:
+
   Yu, J.; Horsfield, A. *Tight binding simulation of MgO and Mg(OH)₂ hydration and carbonation processes*. J. Chem. Theory Comput. 2025, 21, 1961–1977.
