@@ -29,3 +29,6 @@ HOMO of Caffeine molecule
 # NOTICE
 The ELF code right now is calculated under its original definition in real space, which results in very low calculation efficiency. This calculation can be held in reciprocal space after Fourier transformation. The gradient of wavefunction phi and charge density will be equal to ik(Phi(k)) and ik(rho(k)), which will increase the calculation efficiency significantly.
 Support for Gaussian and Slater-type orbitals will also be added in the future.
+
+If you like this code, you may also be interested in our related work:
+  Yu, J.; Horsfield, A. *Tight binding simulation of MgO and Mg(OH)₂ hydration and carbonation processes*. J. Chem. Theory Comput. 2025, 21, 1961–1977.
