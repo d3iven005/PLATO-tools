@@ -7,7 +7,7 @@ Before using this code, ensure that you have Python 'numpy' package and PLATO (A
  3. Modify the parameters in "input.py" as needed, and run this code.
  4. The output will be saved in the "01_results/" folder, visualise the "*.cube" file by VMD or other visualisation software.
 # EXAMPLE
-Some "*.wf" and "*.xyz" files have been pre-placed in the "00_inputdata/" folder. The default input file is configured for ELF calculation of a water molecule.
+Some "*.wf" and "*.xyz" files have been pre-placed in the "00_inputdata/" folder. The default input file is configured for ELF calculation of a Caffeine molecule.
 
 ![demo](images/Caffeine_ELF.png)
 
