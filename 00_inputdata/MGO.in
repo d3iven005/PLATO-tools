@@ -1,0 +1,106 @@
+SpinFlag
+0
+SOCFlag
+0
+MagneticFieldFlag
+0
+LSDApUFlag
+0
+Dataset
+0_NEWIDEA
+OccupyFlag
+0 1
+OccupyTolerance
+1.0e-12
+ElectronTemperature
+0.001
+BlochStates
+-1
+3 3 3
+StonerFlag
+0
+PBCFlag
+1
+SpinMixFactor
+0.2
+VanDerWaals
+0
+ElectronExcess
+0.0
+MagneticField
+0.0
+ExternalField
+0
+0
+SCFFlag
+1
+NLoops
+1000
+ETol
+0.0
+ResidueTol
+0.00001
+MixScheme
+1
+MixLevels
+5
+MixFactor
+0.01
+SpinMixFactor
+0.2
+PreconditioningFlag
+1 1.0
+MixClipping
+0.01 0.1
+OpenBoundaryTerminals
+0 1 -10.0 0.0
+0.0 0.01 0.001 1 2 1  2
+OpenBoundaryCurrent
+0
+3 1 2 3
+3 4 5 6
+OpenBoundaryTransmission
+-10.0 10.0 0.01
+NBands
+12
+Job
+2
+ExternalModel
+0
+RestartFlag
+0
+MaximumTime
+10000000000
+NoNetForceFlag
+1
+CellVec
+1 0 0
+0 1 0
+0 0 1
+CellSize
+8 8 8
+CellRepeat
+1 1 1
+NAtom
+8
+Format
+3
+Atoms
+Mg 0.0 0.0 0.0
+Mg 2.1158 2.1158 0.0
+Mg 2.1158 0.0 2.1158
+Mg 0.0 2.1158 2.1158
+O  2.1158 2.1158 2.1158
+O  2.1158 0.0 0.0
+O  0.0 2.1158 0.0
+O  0.0 0.0 2.1158
+WriteBondData
+1 1 6.0
+WavefunctionFlag
+2
+RestartFlag
+1
+restartflag
+1
+AutoSave
+1
