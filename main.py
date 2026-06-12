@@ -3,6 +3,7 @@ import datetime
 import numpy as np
 
 from src.rdxyz import rdxyz
+from src.rdplato_input import rdplato_input
 from src.rdwf import rdwf
 from src.count_obt import count_obt
 from src.crgrid import crgrid
@@ -10,8 +11,49 @@ from src.rdobt import rdobt
 from src.PHI_MT import PHImt
 from src.ELF import ELF
 from src.box_for_molecule import build_molecule_box
+from src.local_box import build_local_box
 
 import input
+
+
+def _cell_has_lattice(cell_a, cell_b, cell_c):
+    return not (
+        np.allclose(cell_a, 0.0)
+        and np.allclose(cell_b, 0.0)
+        and np.allclose(cell_c, 0.0)
+    )
+
+
+def _read_geometry(jobname):
+    xyz_path = os.path.join('00_inputdata', jobname + '.xyz')
+    plato_input_path = os.path.join('00_inputdata', jobname + '.in')
+
+    xyz_data = None
+    plato_input_data = None
+
+    if os.path.exists(xyz_path):
+        xyz_data = rdxyz(os.path.join('00_inputdata', jobname))
+
+    if os.path.exists(plato_input_path):
+        plato_input_data = rdplato_input(plato_input_path)
+
+    if xyz_data is None and plato_input_data is None:
+        raise FileNotFoundError(
+            f"Neither {xyz_path} nor {plato_input_path} exists for jobname {jobname!r}."
+        )
+
+    if xyz_data is None:
+        print('>>>GEOMETRY READ FROM PLATO INPUT FILE')
+        return plato_input_data
+
+    atom_xyz, cell_a, cell_b, cell_c = xyz_data
+    if _cell_has_lattice(cell_a, cell_b, cell_c) or plato_input_data is None:
+        print('>>>GEOMETRY READ FROM XYZ FILE')
+        return xyz_data
+
+    _, input_cell_a, input_cell_b, input_cell_c = plato_input_data
+    print('>>>ATOMS READ FROM XYZ FILE; CELL READ FROM PLATO INPUT FILE')
+    return atom_xyz, input_cell_a, input_cell_b, input_cell_c
 
 
 def main():
@@ -28,19 +70,30 @@ def main():
     N3 = input.N3
     energylevel = input.energylevel
     padding_distance = input.padding_distance
+    level_chunk_size = getattr(input, 'level_chunk_size', 2)
+    use_local_box = getattr(input, 'use_local_box', False)
+    local_box_normalize_orbitals = getattr(
+        input,
+        'local_box_normalize_orbitals',
+        False,
+    )
 
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     start = datetime.datetime.now()
 
     print('>>>READING INPUT FILE')
 
-    a = rdxyz('00_inputdata/' + jobname)
+    a = _read_geometry(jobname)
     atom_xyz = a[0]
 
     # --------------------------------------------------
     # Build box and origin
     # --------------------------------------------------
     origin_ang = None
+    grid_origin_ang = None
+    grid_vectorA = None
+    grid_vectorB = None
+    grid_vectorC = None
 
     if ifcrystal == 0:
         # molecule / non-periodic case:
@@ -67,6 +120,27 @@ def main():
             vectorB = np.array(vectorB, dtype=float)
             vectorC = np.array(vectorC, dtype=float)
 
+    if use_local_box:
+        grid_origin_ang, grid_vectorA, grid_vectorB, grid_vectorC = build_local_box(
+            input.box_xmin,
+            input.box_xmax,
+            input.box_ymin,
+            input.box_ymax,
+            input.box_zmin,
+            input.box_zmax,
+        )
+        print('>>>LOCAL OUTPUT BOX ENABLED')
+        print('>>>LOCAL BOX ORIGIN (Angstrom):', grid_origin_ang)
+        print('>>>LOCAL BOX VECTORS (Bohr):')
+        print('   A =', grid_vectorA)
+        print('   B =', grid_vectorB)
+        print('   C =', grid_vectorC)
+    else:
+        grid_origin_ang = origin_ang
+        grid_vectorA = vectorA
+        grid_vectorB = vectorB
+        grid_vectorC = vectorC
+
     # --------------------------------------------------
     # Read orbital / wavefunction data
     # --------------------------------------------------
@@ -76,10 +150,16 @@ def main():
     # --------------------------------------------------
     # Create grid
     # --------------------------------------------------
-    if ifcrystal == 0:
-        d = crgrid(N1, N2, N3, vectorA, vectorB, vectorC, origin=origin_ang, origin_unit='angstrom')
-    else:
-        d = crgrid(N1, N2, N3, vectorA, vectorB, vectorC, origin=origin_ang, origin_unit='angstrom')
+    d = crgrid(
+        N1,
+        N2,
+        N3,
+        grid_vectorA,
+        grid_vectorB,
+        grid_vectorC,
+        origin=grid_origin_ang,
+        origin_unit='angstrom',
+    )
 
     # --------------------------------------------------
     # Read numerical orbitals
@@ -140,7 +220,13 @@ def main():
             d,
             energylevel_list,
             ncpu,
-            origin_ang=origin_ang
+            origin_ang=grid_origin_ang,
+            grid_cell_a=grid_vectorA,
+            grid_cell_b=grid_vectorB,
+            grid_cell_c=grid_vectorC,
+            normalize_orbitals=(
+                local_box_normalize_orbitals if use_local_box else True
+            ),
         )
 
     elif job == 2:
@@ -156,9 +242,16 @@ def main():
             c[4],
             c[3],
             d,
-            c[2][0],
+            c[2],
             ncpu,
-            origin_ang=origin_ang
+            origin_ang=grid_origin_ang,
+            level_chunk_size=level_chunk_size,
+            grid_cell_a=grid_vectorA,
+            grid_cell_b=grid_vectorB,
+            grid_cell_c=grid_vectorC,
+            normalize_orbitals=(
+                local_box_normalize_orbitals if use_local_box else True
+            ),
         )
 
     else:
