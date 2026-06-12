@@ -6,6 +6,7 @@ from src.count_obt import count_obt
 BOHR = 0.529177
 EPS_R = 1.0e-14
 DEFAULT_TAPER_WIDTH = 0.3  # in the same unit as the radial table, usually Bohr
+BLOCH_CACHE_MAX_BYTES = 512 * 1024 * 1024
 
 NEIGHBOR_SHIFTS = [(i, j, k) for i in range(-1, 2) for j in range(-1, 2) for k in range(-1, 2)]
 
@@ -34,6 +35,121 @@ def _orbital_offsets(obtinfo):
 
 def _zero_field(xyzgrid):
     return np.zeros(xyzgrid.shape[:3], dtype=complex)
+
+
+def _is_axis_aligned_cell(cell_a, cell_b, cell_c):
+    cell_a = np.asarray(cell_a, dtype=float)
+    cell_b = np.asarray(cell_b, dtype=float)
+    cell_c = np.asarray(cell_c, dtype=float)
+    return (
+        abs(cell_a[1]) < 1e-14 and abs(cell_a[2]) < 1e-14
+        and abs(cell_b[0]) < 1e-14 and abs(cell_b[2]) < 1e-14
+        and abs(cell_c[0]) < 1e-14 and abs(cell_c[1]) < 1e-14
+    )
+
+
+def _local_slice_for_cutoff(xyzgrid, atom_pos, cutoff, cell_a, cell_b, cell_c):
+    """
+    Return a rectangular grid slice around atom_pos for axis-aligned cells.
+
+    If the cell is not axis-aligned, fall back to the full grid. The radial
+    interpolation still zeros values outside cutoff; this fallback preserves
+    correctness while keeping the optimized path simple for the current MGO use.
+    """
+    if not _is_axis_aligned_cell(cell_a, cell_b, cell_c):
+        return (slice(None), slice(None), slice(None))
+
+    axes = (
+        xyzgrid[:, 0, 0, 0],
+        xyzgrid[0, :, 0, 1],
+        xyzgrid[0, 0, :, 2],
+    )
+
+    slices = []
+    for dim, coords in enumerate(axes):
+        lo = atom_pos[dim] - cutoff
+        hi = atom_pos[dim] + cutoff
+        idx = np.where((coords >= lo) & (coords <= hi))[0]
+        if idx.size == 0:
+            return None
+        slices.append(slice(int(idx[0]), int(idx[-1]) + 1))
+
+    return tuple(slices)
+
+
+def _axis_phase_cache(xyzgrid, k_vectors, cell_a, cell_b, cell_c):
+    """
+    Precompute separable Bloch phases for axis-aligned grids.
+
+    exp(i k.r) = exp(i kx x) exp(i ky y) exp(i kz z)
+    """
+    if not _is_axis_aligned_cell(cell_a, cell_b, cell_c):
+        return None
+
+    x_axis = xyzgrid[:, 0, 0, 0]
+    y_axis = xyzgrid[0, :, 0, 1]
+    z_axis = xyzgrid[0, 0, :, 2]
+
+    cache = []
+    for k_vector in k_vectors:
+        k_vector = np.asarray(k_vector, dtype=float)
+        cache.append((
+            np.exp(1j * k_vector[0] * x_axis),
+            np.exp(1j * k_vector[1] * y_axis),
+            np.exp(1j * k_vector[2] * z_axis),
+        ))
+    return cache
+
+
+def _full_bloch_phase_cache(xyzgrid, k_vectors, max_bytes=BLOCH_CACHE_MAX_BYTES):
+    """
+    Precompute exp(i k.r) on the full grid for each k-vector.
+
+    This is faster than rebuilding local phases for every atom/image when the
+    cache fits comfortably in memory. If it would be too large, return None.
+    """
+    n_k = len(k_vectors)
+    n_grid = int(np.prod(xyzgrid.shape[:3]))
+    estimated_bytes = n_k * n_grid * np.dtype(np.complex128).itemsize
+    if estimated_bytes > max_bytes:
+        return None
+
+    return [
+        np.exp(1j * np.dot(xyzgrid, np.asarray(k_vector, dtype=float)))
+        for k_vector in k_vectors
+    ]
+
+
+def _bloch_from_axis_phase(axis_phase, local_slice):
+    sx, sy, sz = local_slice
+    phase_x, phase_y, phase_z = axis_phase
+    return (
+        phase_x[sx][:, np.newaxis, np.newaxis]
+        * phase_y[sy][np.newaxis, :, np.newaxis]
+        * phase_z[sz][np.newaxis, np.newaxis, :]
+    )
+
+
+def _orbital_cutoff(OBT):
+    OBT = np.asarray(OBT, dtype=float)
+    return float(OBT[-1, 0])
+
+
+def _basis_table_keys(obt_count, elementtype):
+    if obt_count == 1:
+        return ['Hs']
+    if obt_count == 4:
+        return [elementtype + 's', elementtype + 'p']
+    if obt_count == 9:
+        return []
+    raise ValueError(f"Unsupported orbital count: {obt_count}")
+
+
+def _basis_cutoff(obt_count, elementtype, obtdictionary):
+    keys = _basis_table_keys(obt_count, elementtype)
+    if not keys:
+        return 0.0
+    return max(_orbital_cutoff(obtdictionary[key]) for key in keys)
 
 
 def _smooth_switch(r, r_start, r_cut):
@@ -133,6 +249,33 @@ def _interp_radial_smooth(OBT, r, taper_width=DEFAULT_TAPER_WIDTH):
     return Rval, dRdr
 
 
+def _interp_radial_smooth_value(OBT, r, taper_width=DEFAULT_TAPER_WIDTH):
+    """
+    Interpolate radial orbital values with the same smooth cutoff used by the
+    analytical-gradient path, but do not compute radial derivatives.
+    """
+    OBT = np.asarray(OBT, dtype=float)
+
+    if OBT.ndim != 2 or OBT.shape[1] != 2:
+        raise ValueError(f"OBT must have shape (N, 2), got {OBT.shape}")
+
+    x = OBT[:, 0]
+    y = OBT[:, 1]
+
+    if np.any(np.diff(x) < 0):
+        raise ValueError("Radial grid in OBT must be monotonically increasing.")
+
+    r_cut = x[-1]
+    R_raw = np.where(r > r_cut, 0.0, np.interp(r, x, y))
+    r_start = max(x[0], r_cut - taper_width)
+
+    if r_start >= r_cut - 1e-12:
+        return R_raw
+
+    s, _ = _smooth_switch(r, r_start, r_cut)
+    return R_raw * s
+
+
 def _angular_value_and_gradient(grid, atomic_position, m, l):
     """
     Return Y and its Cartesian derivatives:
@@ -192,6 +335,32 @@ def _angular_value_and_gradient(grid, atomic_position, m, l):
         dYdz = np.where(r > EPS_R, dYdz, 0.0)
 
         return Y, dYdx, dYdy, dYdz
+
+    raise ValueError(f"Unsupported l={l}; currently only l=0 and l=1 are implemented")
+
+
+def _angular_value(grid, atomic_position, m, l):
+    vector_M = grid - atomic_position
+    x = vector_M[..., 0]
+    y = vector_M[..., 1]
+    z = vector_M[..., 2]
+    r = np.sqrt(x**2 + y**2 + z**2)
+
+    if l == 0:
+        return np.full(r.shape, 1.0 / (2.0 * np.sqrt(np.pi)), dtype=float)
+
+    if l == 1:
+        r_safe = np.where(r > EPS_R, r, 1.0)
+        pref = 0.5 * np.sqrt(3.0 / np.pi)
+        if m == 1:
+            Y = pref * (x / r_safe)
+        elif m == -1:
+            Y = pref * (y / r_safe)
+        elif m == 0:
+            Y = pref * (z / r_safe)
+        else:
+            raise ValueError(f"Unsupported m={m} for l=1")
+        return np.where(r > EPS_R, Y, 0.0)
 
     raise ValueError(f"Unsupported l={l}; currently only l=0 and l=1 are implemented")
 
@@ -312,6 +481,414 @@ def _basis_value_and_gradient(obt_count, elementtype, atom_pos, xyzgrid, obtdict
         return []
 
     raise ValueError(f"Unsupported orbital count: {obt_count}")
+
+
+def _basis_value_only(obt_count, elementtype, atom_pos, xyzgrid, obtdictionary):
+    """
+    Build basis function values without Cartesian gradients.
+
+    Ordering matches _basis_value_and_gradient:
+    - obt_count == 1: [s]
+    - obt_count == 4: [s, pz, px, py]
+    """
+    vector_M = xyzgrid - atom_pos
+    r = np.sqrt(
+        vector_M[..., 0]**2
+        + vector_M[..., 1]**2
+        + vector_M[..., 2]**2
+    )
+
+    if obt_count == 1:
+        Rv = _interp_radial_smooth_value(obtdictionary['Hs'], r)
+        return [Rv * _angular_value(xyzgrid, atom_pos, 0, 0)]
+
+    if obt_count == 4:
+        Rs = _interp_radial_smooth_value(obtdictionary[elementtype + 's'], r)
+        Rp = _interp_radial_smooth_value(obtdictionary[elementtype + 'p'], r)
+        chi_s = Rs * _angular_value(xyzgrid, atom_pos, 0, 0)
+        chi_pz = Rp * _angular_value(xyzgrid, atom_pos, 0, 1)
+        chi_px = Rp * _angular_value(xyzgrid, atom_pos, 1, 1)
+        chi_py = Rp * _angular_value(xyzgrid, atom_pos, -1, 1)
+        return [chi_s, chi_pz, chi_px, chi_py]
+
+    if obt_count == 9:
+        return []
+
+    raise ValueError(f"Unsupported orbital count: {obt_count}")
+
+
+def accumulate_level_chunk_from_local_basis(
+    ifcrystal,
+    cell_a,
+    cell_b,
+    cell_c,
+    obtdictionary,
+    atom_xyz,
+    kpoint_coe_list,
+    kpoint_list,
+    phi_coe_list,
+    xyzgrid,
+    levels,
+    k_indices,
+    atom_indices=None,
+):
+    """
+    Accumulate PHI and gradients for a small chunk of energy levels.
+
+    Basis fields are computed once per atom/image on a cutoff-local grid slice,
+    then reused across all requested k-points and levels in this chunk. This is
+    the memory-bounded optimized path used by ELF.
+    """
+    cell_a = np.asarray(cell_a, dtype=float)
+    cell_b = np.asarray(cell_b, dtype=float)
+    cell_c = np.asarray(cell_c, dtype=float)
+    levels = list(levels)
+
+    PHI = [_zero_field(xyzgrid) for _ in levels]
+    dPHI_dx = [_zero_field(xyzgrid) for _ in levels]
+    dPHI_dy = [_zero_field(xyzgrid) for _ in levels]
+    dPHI_dz = [_zero_field(xyzgrid) for _ in levels]
+
+    obtinfo = count_obt(atom_xyz)
+    offsets = _orbital_offsets(obtinfo)
+    if atom_indices is None:
+        atom_indices = range(len(atom_xyz))
+
+    if ifcrystal == 1:
+        shifts = NEIGHBOR_SHIFTS
+        reci_a, reci_b, reci_c = _reciprocal_vectors(cell_a, cell_b, cell_c)
+        k_vectors = []
+        for ik in k_indices:
+            kpoint = kpoint_list[ik]
+            k_vectors.append(kpoint[0] * reci_a + kpoint[1] * reci_b + kpoint[2] * reci_c)
+    elif ifcrystal == 0:
+        shifts = [(0, 0, 0)]
+        k_vectors = []
+        k_indices = [0]
+    else:
+        raise ValueError(f"ifcrystal must be 0 or 1, got {ifcrystal}")
+
+    for i in atom_indices:
+        atom = atom_xyz[i]
+        obt_count = int(obtinfo[i])
+        offset = int(offsets[i])
+        elementtype = atom[0]
+        atom_pos0 = _atom_position_bohr(atom)
+        cutoff = _basis_cutoff(obt_count, elementtype, obtdictionary)
+
+        if cutoff <= 0.0:
+            continue
+
+        for ii, jj, kk in shifts:
+            atom_pos = atom_pos0 + ii * cell_a + jj * cell_b + kk * cell_c
+            local_slice = _local_slice_for_cutoff(
+                xyzgrid, atom_pos, cutoff, cell_a, cell_b, cell_c
+            )
+            if local_slice is None:
+                continue
+
+            local_grid = xyzgrid[local_slice]
+            basis_list = _basis_value_and_gradient(
+                obt_count=obt_count,
+                elementtype=elementtype,
+                atom_pos=atom_pos,
+                xyzgrid=local_grid,
+                obtdictionary=obtdictionary,
+            )
+
+            if ifcrystal == 0:
+                phi_coe = phi_coe_list[0]
+                for ib, (chi, dchi_x, dchi_y, dchi_z) in enumerate(basis_list):
+                    basis_index = offset + ib
+                    for ilevel, level in enumerate(levels):
+                        coeff = phi_coe[level][basis_index]
+                        PHI[ilevel][local_slice] += coeff * chi
+                        dPHI_dx[ilevel][local_slice] += coeff * dchi_x
+                        dPHI_dy[ilevel][local_slice] += coeff * dchi_y
+                        dPHI_dz[ilevel][local_slice] += coeff * dchi_z
+                continue
+
+            for ik, k_vector in zip(k_indices, k_vectors):
+                k_vector = np.asarray(k_vector, dtype=float)
+                phase_atom = np.exp(-1j * np.dot(k_vector, atom_pos))
+                bloch = np.exp(1j * np.dot(local_grid, k_vector)) * phase_atom
+
+                ikx = 1j * k_vector[0]
+                iky = 1j * k_vector[1]
+                ikz = 1j * k_vector[2]
+                phi_coe = phi_coe_list[ik]
+
+                for ib, (chi, dchi_x, dchi_y, dchi_z) in enumerate(basis_list):
+                    basis_index = offset + ib
+                    chi_bloch = chi * bloch
+                    grad_x = dchi_x * bloch + chi * ikx * bloch
+                    grad_y = dchi_y * bloch + chi * iky * bloch
+                    grad_z = dchi_z * bloch + chi * ikz * bloch
+
+                    for ilevel, level in enumerate(levels):
+                        coeff = phi_coe[level][basis_index]
+                        PHI[ilevel][local_slice] += coeff * chi_bloch
+                        dPHI_dx[ilevel][local_slice] += coeff * grad_x
+                        dPHI_dy[ilevel][local_slice] += coeff * grad_y
+                        dPHI_dz[ilevel][local_slice] += coeff * grad_z
+
+    return list(zip(PHI, dPHI_dx, dPHI_dy, dPHI_dz))
+
+
+def accumulate_level_chunk_all_k_from_local_basis(
+    ifcrystal,
+    cell_a,
+    cell_b,
+    cell_c,
+    obtdictionary,
+    atom_xyz,
+    kpoint_list,
+    phi_coe_list,
+    xyzgrid,
+    levels,
+    k_indices,
+    atom_indices=None,
+):
+    """
+    Accumulate PHI and gradients for all requested k-points in one pass.
+
+    For each atom/image, basis values and gradients are built once on the local
+    cutoff slice, then reused across every requested k-point and band in
+    ``levels``. Return shape is:
+
+        results[ik_local][ilevel] = (PHI, dPHI_dx, dPHI_dy, dPHI_dz)
+    """
+    cell_a = np.asarray(cell_a, dtype=float)
+    cell_b = np.asarray(cell_b, dtype=float)
+    cell_c = np.asarray(cell_c, dtype=float)
+    levels = list(levels)
+    k_indices = list(k_indices)
+
+    if ifcrystal == 0:
+        k_indices = [0]
+
+    results = [
+        [
+            [_zero_field(xyzgrid), _zero_field(xyzgrid), _zero_field(xyzgrid), _zero_field(xyzgrid)]
+            for _ in levels
+        ]
+        for _ in k_indices
+    ]
+
+    obtinfo = count_obt(atom_xyz)
+    offsets = _orbital_offsets(obtinfo)
+    if atom_indices is None:
+        atom_indices = range(len(atom_xyz))
+
+    if ifcrystal == 1:
+        shifts = NEIGHBOR_SHIFTS
+        reci_a, reci_b, reci_c = _reciprocal_vectors(cell_a, cell_b, cell_c)
+        k_vectors = []
+        for ik in k_indices:
+            kpoint = kpoint_list[ik]
+            k_vectors.append(kpoint[0] * reci_a + kpoint[1] * reci_b + kpoint[2] * reci_c)
+        full_phase_cache = _full_bloch_phase_cache(xyzgrid, k_vectors)
+        axis_phase_cache = None
+        if full_phase_cache is None:
+            axis_phase_cache = _axis_phase_cache(xyzgrid, k_vectors, cell_a, cell_b, cell_c)
+    elif ifcrystal == 0:
+        shifts = [(0, 0, 0)]
+        k_vectors = [None]
+        full_phase_cache = None
+        axis_phase_cache = None
+    else:
+        raise ValueError(f"ifcrystal must be 0 or 1, got {ifcrystal}")
+
+    for i in atom_indices:
+        atom = atom_xyz[i]
+        obt_count = int(obtinfo[i])
+        offset = int(offsets[i])
+        elementtype = atom[0]
+        atom_pos0 = _atom_position_bohr(atom)
+        cutoff = _basis_cutoff(obt_count, elementtype, obtdictionary)
+
+        if cutoff <= 0.0:
+            continue
+
+        for ii, jj, kk in shifts:
+            atom_pos = atom_pos0 + ii * cell_a + jj * cell_b + kk * cell_c
+            local_slice = _local_slice_for_cutoff(
+                xyzgrid, atom_pos, cutoff, cell_a, cell_b, cell_c
+            )
+            if local_slice is None:
+                continue
+
+            local_grid = xyzgrid[local_slice]
+            basis_list = _basis_value_and_gradient(
+                obt_count=obt_count,
+                elementtype=elementtype,
+                atom_pos=atom_pos,
+                xyzgrid=local_grid,
+                obtdictionary=obtdictionary,
+            )
+
+            if ifcrystal == 0:
+                phi_coe = phi_coe_list[0]
+                for ib, (chi, dchi_x, dchi_y, dchi_z) in enumerate(basis_list):
+                    basis_index = offset + ib
+                    for ilevel, level in enumerate(levels):
+                        coeff = phi_coe[level][basis_index]
+                        fields = results[0][ilevel]
+                        fields[0][local_slice] += coeff * chi
+                        fields[1][local_slice] += coeff * dchi_x
+                        fields[2][local_slice] += coeff * dchi_y
+                        fields[3][local_slice] += coeff * dchi_z
+                continue
+
+            for ik_local, (ik, k_vector) in enumerate(zip(k_indices, k_vectors)):
+                k_vector = np.asarray(k_vector, dtype=float)
+                phase_atom = np.exp(-1j * np.dot(k_vector, atom_pos))
+                if full_phase_cache is not None:
+                    bloch_grid = full_phase_cache[ik_local][local_slice]
+                elif axis_phase_cache is not None:
+                    bloch_grid = _bloch_from_axis_phase(axis_phase_cache[ik_local], local_slice)
+                else:
+                    bloch_grid = np.exp(1j * np.dot(local_grid, k_vector))
+                bloch = bloch_grid * phase_atom
+
+                ikx = 1j * k_vector[0]
+                iky = 1j * k_vector[1]
+                ikz = 1j * k_vector[2]
+                phi_coe = phi_coe_list[ik]
+
+                for ib, (chi, dchi_x, dchi_y, dchi_z) in enumerate(basis_list):
+                    basis_index = offset + ib
+                    chi_bloch = chi * bloch
+                    grad_x = dchi_x * bloch + chi * ikx * bloch
+                    grad_y = dchi_y * bloch + chi * iky * bloch
+                    grad_z = dchi_z * bloch + chi * ikz * bloch
+
+                    for ilevel, level in enumerate(levels):
+                        coeff = phi_coe[level][basis_index]
+                        fields = results[ik_local][ilevel]
+                        fields[0][local_slice] += coeff * chi_bloch
+                        fields[1][local_slice] += coeff * grad_x
+                        fields[2][local_slice] += coeff * grad_y
+                        fields[3][local_slice] += coeff * grad_z
+
+    return results
+
+
+def accumulate_level_chunk_all_k_values_from_local_basis(
+    ifcrystal,
+    cell_a,
+    cell_b,
+    cell_c,
+    obtdictionary,
+    atom_xyz,
+    kpoint_list,
+    phi_coe_list,
+    xyzgrid,
+    levels,
+    k_indices,
+    atom_indices=None,
+):
+    """
+    Accumulate PHI values for all requested k-points in one pass.
+
+    Return shape:
+        results[ik_local][ilevel] = PHI
+    """
+    cell_a = np.asarray(cell_a, dtype=float)
+    cell_b = np.asarray(cell_b, dtype=float)
+    cell_c = np.asarray(cell_c, dtype=float)
+    levels = list(levels)
+    k_indices = list(k_indices)
+
+    if ifcrystal == 0:
+        k_indices = [0]
+
+    results = [
+        [_zero_field(xyzgrid) for _ in levels]
+        for _ in k_indices
+    ]
+
+    obtinfo = count_obt(atom_xyz)
+    offsets = _orbital_offsets(obtinfo)
+    if atom_indices is None:
+        atom_indices = range(len(atom_xyz))
+
+    if ifcrystal == 1:
+        shifts = NEIGHBOR_SHIFTS
+        reci_a, reci_b, reci_c = _reciprocal_vectors(cell_a, cell_b, cell_c)
+        k_vectors = []
+        for ik in k_indices:
+            kpoint = kpoint_list[ik]
+            k_vectors.append(kpoint[0] * reci_a + kpoint[1] * reci_b + kpoint[2] * reci_c)
+        full_phase_cache = _full_bloch_phase_cache(xyzgrid, k_vectors)
+        axis_phase_cache = None
+        if full_phase_cache is None:
+            axis_phase_cache = _axis_phase_cache(xyzgrid, k_vectors, cell_a, cell_b, cell_c)
+    elif ifcrystal == 0:
+        shifts = [(0, 0, 0)]
+        k_vectors = [None]
+        full_phase_cache = None
+        axis_phase_cache = None
+    else:
+        raise ValueError(f"ifcrystal must be 0 or 1, got {ifcrystal}")
+
+    for i in atom_indices:
+        atom = atom_xyz[i]
+        obt_count = int(obtinfo[i])
+        offset = int(offsets[i])
+        elementtype = atom[0]
+        atom_pos0 = _atom_position_bohr(atom)
+        cutoff = _basis_cutoff(obt_count, elementtype, obtdictionary)
+
+        if cutoff <= 0.0:
+            continue
+
+        for ii, jj, kk in shifts:
+            atom_pos = atom_pos0 + ii * cell_a + jj * cell_b + kk * cell_c
+            local_slice = _local_slice_for_cutoff(
+                xyzgrid, atom_pos, cutoff, cell_a, cell_b, cell_c
+            )
+            if local_slice is None:
+                continue
+
+            local_grid = xyzgrid[local_slice]
+            basis_list = _basis_value_only(
+                obt_count=obt_count,
+                elementtype=elementtype,
+                atom_pos=atom_pos,
+                xyzgrid=local_grid,
+                obtdictionary=obtdictionary,
+            )
+
+            if ifcrystal == 0:
+                phi_coe = phi_coe_list[0]
+                for ib, chi in enumerate(basis_list):
+                    basis_index = offset + ib
+                    for ilevel, level in enumerate(levels):
+                        coeff = phi_coe[level][basis_index]
+                        results[0][ilevel][local_slice] += coeff * chi
+                continue
+
+            for ik_local, (ik, k_vector) in enumerate(zip(k_indices, k_vectors)):
+                k_vector = np.asarray(k_vector, dtype=float)
+                phase_atom = np.exp(-1j * np.dot(k_vector, atom_pos))
+                if full_phase_cache is not None:
+                    bloch_grid = full_phase_cache[ik_local][local_slice]
+                elif axis_phase_cache is not None:
+                    bloch_grid = _bloch_from_axis_phase(axis_phase_cache[ik_local], local_slice)
+                else:
+                    bloch_grid = np.exp(1j * np.dot(local_grid, k_vector))
+                bloch = bloch_grid * phase_atom
+                phi_coe = phi_coe_list[ik]
+
+                for ib, chi in enumerate(basis_list):
+                    basis_index = offset + ib
+                    chi_bloch = chi * bloch
+                    for ilevel, level in enumerate(levels):
+                        coeff = phi_coe[level][basis_index]
+                        results[ik_local][ilevel][local_slice] += coeff * chi_bloch
+
+    return results
 
 
 def _accumulate_nonperiodic(phi_coe_level, atom_xyz, obtinfo, offsets, xyzgrid, obtdictionary):

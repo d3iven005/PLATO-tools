@@ -55,7 +55,9 @@ def _write_cube(filename, data, atom_xyz, cell_a, cell_b, cell_c, origin_ang=Non
 
 def PHImt(ifcrystal, cell_a, cell_b, cell_c, obtdictionary,
           atom_xyz, kpoint_coe_list, kpoint_list, phi_coe_list,
-          xyzgrid, energylevel_list, ncpu, origin_ang=None):
+          xyzgrid, energylevel_list, ncpu, origin_ang=None,
+          grid_cell_a=None, grid_cell_b=None, grid_cell_c=None,
+          normalize_orbitals=True):
     """
     Molecular orbital calculation on the real-space grid.
 
@@ -73,12 +75,21 @@ def PHImt(ifcrystal, cell_a, cell_b, cell_c, obtdictionary,
     cell_a = np.asarray(cell_a, dtype=float)
     cell_b = np.asarray(cell_b, dtype=float)
     cell_c = np.asarray(cell_c, dtype=float)
+    if grid_cell_a is None:
+        grid_cell_a = cell_a
+    if grid_cell_b is None:
+        grid_cell_b = cell_b
+    if grid_cell_c is None:
+        grid_cell_c = cell_c
+    grid_cell_a = np.asarray(grid_cell_a, dtype=float)
+    grid_cell_b = np.asarray(grid_cell_b, dtype=float)
+    grid_cell_c = np.asarray(grid_cell_c, dtype=float)
 
     if len(kpoint_coe_list) != len(kpoint_list) or len(kpoint_list) != len(phi_coe_list):
         raise ValueError("kpoint_coe_list, kpoint_list, and phi_coe_list must have the same length.")
 
     nk = len(kpoint_coe_list)
-    V = abs(np.dot(cell_a, np.cross(cell_b, cell_c)))
+    V = abs(np.dot(grid_cell_a, np.cross(grid_cell_b, grid_cell_c)))
     N = int(xyzgrid.size / 3)
     dV = V / N
 
@@ -112,8 +123,9 @@ def PHImt(ifcrystal, cell_a, cell_b, cell_c, obtdictionary,
             PHI += results[idx]
             idx += 1
 
-        norm = np.sqrt(1.0 / np.sum(PHI * np.conj(PHI) * dV))
-        PHI *= norm
+        if normalize_orbitals:
+            norm = np.sqrt(1.0 / np.sum(PHI * np.conj(PHI) * dV))
+            PHI *= norm
 
         phi_fields.append(PHI)
 
@@ -122,9 +134,9 @@ def PHImt(ifcrystal, cell_a, cell_b, cell_c, obtdictionary,
             filename,
             PHI,
             atom_xyz,
-            cell_a,
-            cell_b,
-            cell_c,
+            grid_cell_a,
+            grid_cell_b,
+            grid_cell_c,
             origin_ang=origin_ang
         )
 
