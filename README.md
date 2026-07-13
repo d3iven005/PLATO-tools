@@ -26,6 +26,8 @@ HOMO of Caffeine molecule
  3. Copy all the '.mdt' files in the directory "PLATO-tools/PLATOdataset/Multipole/SCF2(dipole)" or "PLATO-tools/PLATOdataset/Multipole/SCF3(quadrupole)" (not recommended)) to "Your_PLATO_route/Data/TightBinding/HCOMg_new".
  4. Change the 'SCFFlag' Flag in the input file to 2 for dipole, or 3 for quardrupole. Note that the '.mdt' file in 'SCF2(dipole)' only support monopole and dipole calculation, and 'SCF3(quadrupole)' only supports monopole and quadrupole calculation.
  5. Run the "tb1" or "tb3" program.
+# PLATO PATCHES (DFTB+MACE) USAGE
+For the DFTB+MACE model patches, please read the readme.txt file in the "/PLATOpatches" directory and replace the corresponding source codes in the PLATO.
 # NOTICE
 The ELF code right now is calculated under its original definition in real space, which results in very low calculation efficiency. This calculation can be held in reciprocal space after Fourier transformation. The gradient of wavefunction phi and charge density will be equal to ik(Phi(k)) and ik(rho(k)), which will increase the calculation efficiency significantly.
 Support for Gaussian and Slater-type orbitals will also be added in the future.
